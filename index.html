@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 模型网关 · 服务状态</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:28px 24px 48px;background:#faf9f7;color:#2C2C2A;
+font-family:"Microsoft YaHei UI","Segoe UI",sans-serif;font-size:14px;line-height:1.6}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:22px;font-weight:500;margin:0 0 6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.badge{font-size:12px;padding:3px 12px;border-radius:20px;font-weight:400}
+.badge.up{background:#E5F5EE;color:#1D9E75}
+.badge.degraded{background:#FDF3E2;color:#B47417}
+.badge.down{background:#FCEBEB;color:#A32D2D}
+.badge.na{background:#F1EFE8;color:#888780}
+.sub{color:#5F5E5A;font-size:12.5px;margin:0 0 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:24px}
+.card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:12px 16px}
+.card .k{font-size:12px;color:#5F5E5A;margin-bottom:4px}
+.card .v{font-size:22px;font-weight:500}
+.card .s{font-size:11px;color:#888780}
+h2{font-size:15px;font-weight:500;margin:26px 0 12px}
+.note{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:10px 14px;
+font-size:12px;color:#5F5E5A;margin-bottom:20px}
+.mrow{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:13px 16px;margin-bottom:10px}
+.mhead{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.mname{font-family:Consolas,Monaco,monospace;font-size:13px;font-weight:500}
+.mstat{font-size:12px;color:#888780;margin-left:auto}
+.cells{display:flex;gap:2px;flex-wrap:wrap}
+.cell{flex:1;min-width:8px;height:26px;border-radius:3px;background:#E4E2DA;cursor:default}
+.cok{background:#1D9E75}
+.cmix{background:#E8942A}
+.cfail{background:#E24B4A}
+details{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:12px 16px;margin-top:22px}
+summary{cursor:pointer;font-size:13px;color:#5F5E5A}
+details table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+details th{text-align:left;padding:6px 8px;background:#F1EFE8;font-weight:500;color:#444441}
+details td{padding:6px 8px;border-bottom:1px solid rgba(0,0,0,.05);vertical-align:middle}
+.mono{font-family:Consolas,Monaco,monospace;font-size:11px}
+.err{color:#A32D2D;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{color:#888780;font-size:13px;background:#fff;border:1px dashed rgba(0,0,0,.15);
+border-radius:10px;padding:26px;text-align:center}
+.btn{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:6px;padding:4px 14px;
+font-size:12px;cursor:pointer;color:#444441;margin-left:auto}
+.foot{color:#B0AFA8;font-size:11px;margin-top:26px;text-align:center}
+.loading{color:#888780;font-size:13px;text-align:center;padding:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>AI 模型网关 <span class="badge na" id="overall">加载中…</span>
+<button class="btn" id="refresh">刷新</button></h1>
+<p class="sub">本页展示网关各对话模型的实时可用性，数据每 10 分钟自动更新。</p>
+
+<div class="note">📡 探测节点：云端探针位于<b>境外</b>（GitHub Actions 机房）；<b>境内本地探针即将接入</b>，届时将同时展示双节点视角。探测为轻量请求（1 token 应答），不影响正常服务。</div>
+
+<div class="cards">
+  <div class="card"><div class="k">整体可用率（24h）</div><div class="v" id="rate">—</div><div class="s" id="rateSub"></div></div>
+  <div class="card"><div class="k">监控模型数</div><div class="v" id="nModels">—</div><div class="s">deepseek / kimi / glm 系列</div></div>
+  <div class="card"><div class="k">最近探测</div><div class="v" id="lastAt" style="font-size:16px">—</div><div class="s" id="lastAgo"></div></div>
+</div>
+
+<h2>各模型近 48 小时 <span style="font-size:12px;color:#888780;font-weight:400">（每格 = 1 小时：<span style="color:#1D9E75">■</span> 正常　<span style="color:#E8942A">■</span> 部分失败　<span style="color:#E24B4A">■</span> 全部失败　<span style="color:#B8B6AD">■</span> 无数据）</span></h2>
+<div id="models"><div class="loading">加载数据中…</div></div>
+
+<details id="tech">
+<summary>技术详情（最近 50 条失败记录）</summary>
+<div id="techBody"></div>
+</details>
+
+<p class="foot">探测数据自动生成 · 仅含可用性与延迟统计，不含密钥与服务地址</p>
+</div>
+
+<script>
+var TYPE_LABEL = {"billing":"计费/额度","timeout":"超时","http_500":"服务器错误(500)",
+"cpu_overloaded":"CPU过载","no_channel":"无可用渠道","service_unavailable":"服务不可用(503)",
+"rate_limited":"限速(429)","auth":"鉴权错误","network":"网络错误","unknown":"未知"};
+
+function pad(n){return n<10?"0"+n:""+n;}
+function fmtT(ep){var d=new Date(ep*1000);
+  return (d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());}
+function agoStr(ep){var s=Math.floor(Date.now()/1000)-ep;
+  if(s<60)return Math.max(s,0)+" 秒前";
+  if(s<3600)return Math.floor(s/60)+" 分钟前";
+  if(s<86400)return Math.floor(s/3600)+" 小时前";
+  return Math.floor(s/86400)+" 天前";}
+function typeLabel(t){if(TYPE_LABEL[t])return TYPE_LABEL[t];
+  if(t&&t.indexOf("http_")===0)return "HTTP "+t.slice(5);return t||"未知";}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+var ROWS=[];
+function loadAll(){
+  fetch("data/index.json?t="+Date.now()).then(function(r){
+    if(!r.ok)throw 0;return r.json();
+  }).then(function(idx){
+    var files=(idx.files||[]).slice(0,7);
+    if(!files.length)throw 0;
+    return Promise.all(files.map(function(f){
+      return fetch("data/"+f+"?t="+Date.now()).then(function(r){return r.json();});
+    }));
+  }).then(function(days){
+    ROWS=[];
+    days.forEach(function(d){(d.records||[]).forEach(function(r){ROWS.push(r);});});
+    ROWS.sort(function(a,b){return a[0]-b[0];});
+    render();
+  }).catch(function(){
+    document.getElementById("models").innerHTML=
+      '<div class="empty">首轮探测正在进行，约 10-20 分钟后刷新本页即可看到数据。</div>';
+    document.getElementById("overall").className="badge na";
+    document.getElementById("overall").textContent="暂无数据";
+  });
+}
+
+function render(){
+  var now=Math.floor(Date.now()/1000), cut24=now-86400, cut48=now-48*3600;
+  var i,r,total24=0,ok24=0,last=0;
+  var models={};
+  var fails=[];
+  for(i=0;i<ROWS.length;i++){
+    r=ROWS[i];
+    if(r[0]>last)last=r[0];
+    if(r[0]>=cut24){total24++;if(r[3]===1)ok24++;}
+    if(r[1]==="model"){
+      if(!models[r[2]])models[r[2]]=[];
+      models[r[2]].push(r);
+      if(r[3]===0&&r[0]>=cut48)fails.push(r);
+    }
+  }
+  // 总体徽章
+  var rate=total24?100*ok24/total24:0;
+  var el=document.getElementById("rate");
+  el.textContent=total24?rate.toFixed(2)+"%":"—";
+  el.style.color=rate>=99?"#1D9E75":(rate>=90?"#B47417":"#A32D2D");
+  document.getElementById("rateSub").textContent=total24?("近24h "+total24+" 次探测"):"";
+  var badge=document.getElementById("overall");
+  if(!total24){badge.className="badge na";badge.textContent="暂无数据";}
+  else if(rate>=99){badge.className="badge up";badge.textContent="● 全部系统正常";}
+  else if(rate>=90){badge.className="badge degraded";badge.textContent="● 部分模型异常";}
+  else{badge.className="badge down";badge.textContent="● 服务异常";}
+
+  document.getElementById("nModels").textContent=Object.keys(models).length||"—";
+  if(last){document.getElementById("lastAt").textContent=fmtT(last);
+    document.getElementById("lastAgo").textContent=agoStr(last);}
+
+  // 每模型块：48 小时格子，按可用率升序（异常在前）
+  var names=Object.keys(models).sort(function(a,b){
+    var fa=calcRate(models[a],cut48),fb=calcRate(models[b],cut48);
+    return fa-fb||a.localeCompare(b);});
+  var h=[];
+  var bucket0=Math.floor(now/3600)-47;
+  for(i=0;i<names.length;i++){
+    h.push(modelBlock(names[i],models[names[i]],bucket0,cut48));
+  }
+  document.getElementById("models").innerHTML=h.join("")||'<div class="empty">暂无数据</div>';
+
+  // 技术详情
+  var tb=document.getElementById("techBody");
+  if(!fails.length){tb.innerHTML='<div style="color:#1D9E75;font-size:13px;padding:8px 0">近 48 小时无失败记录 🎉</div>';}
+  else{
+    var rows=fails.slice(-50).reverse();
+    var t='<table><thead><tr><th>时间</th><th>模型</th><th>类型</th><th>HTTP</th><th>耗时</th><th>详情</th></tr></thead><tbody>';
+    for(i=0;i<rows.length;i++){r=rows[i];
+      t+='<tr><td class="mono">'+fmtT(r[0])+'</td><td class="mono">'+esc(r[2])+'</td>'
+        +'<td>'+esc(typeLabel(r[6]))+'</td><td class="mono">'+esc(r[5]||"-")+'</td>'
+        +'<td class="mono">'+r[4]+'ms</td><td class="err" title="'+esc(r[7])+'">'+esc(r[7])+'</td></tr>';}
+    t+='</tbody></table>';
+    tb.innerHTML=t;
+  }
+}
+
+function calcRate(rows,cut){
+  var n=0,ok=0,i;
+  for(i=0;i<rows.length;i++)if(rows[i][0]>=cut){n++;if(rows[i][3]===1)ok++;}
+  return n?100*ok/n:0;
+}
+
+function modelBlock(name,rows,bucket0,cut48){
+  var i,r;
+  var rate=calcRate(rows,cut48);
+  var lat=[],nf=0,n=0,curOk=true;
+  for(i=0;i<rows.length;i++){r=rows[i];
+    if(r[0]>=cut48){n++;if(r[3]===0){nf++;curOk=false;}if(r[4]>0)lat.push(r[4]);}}
+  var avg=lat.length?Math.round(lat.reduce(function(a,b){return a+b;},0)/lat.length):0;
+  var col=curOk?"#1D9E75":(rate>=90?"#E8942A":"#A32D2D");
+  var stat="48h 可用率 "+rate.toFixed(1)+"% · 平均 "+avg+"ms · 失败 "+nf+" 次";
+  // 小时桶
+  var buckets={};
+  for(i=0;i<rows.length;i++){r=rows[i];
+    var b=Math.floor(r[0]/3600);
+    if(!buckets[b])buckets[b]={n:0,f:0};
+    buckets[b].n++;if(r[3]===0)buckets[b].f++;}
+  var cells='<div class="cells">';
+  for(i=0;i<48;i++){
+    var bk=bucket0+i,d=buckets[bk],cls="cell",tip;
+    if(d){cls=d.f===0?(cls+" cok"):(d.f===d.n?(cls+" cfail"):(cls+" cmix"));
+      tip=(new Date(bk*3600*1000)).getMonth()+1+"-"+pad((new Date(bk*3600*1000)).getDate())
+        +" "+pad((new Date(bk*3600*1000)).getHours())+"时：探测 "+d.n+" 次，失败 "+d.f+" 次";}
+    else{tip="无数据";}
+    cells+='<div class="'+cls+'" title="'+tip+'"></div>';}
+  cells+="</div>";
+  return '<div class="mrow"><div class="mhead">'
+    +'<span class="dot" style="background:'+col+'"></span>'
+    +'<span class="mname">'+esc(name)+'</span>'
+    +'<span class="mstat">'+stat+'</span></div>'+cells+'</div>';
+}
+
+document.getElementById("refresh").addEventListener("click",loadAll);
+loadAll();
+setInterval(loadAll,5*60*1000);
+</script>
+</body>
+</html>
