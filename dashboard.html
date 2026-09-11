@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>AI 模型网关 · 监控看板</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:24px 28px 40px;background:#faf9f7;color:#2C2C2A;
+font-family:"Microsoft YaHei UI","Segoe UI",sans-serif;font-size:14px;line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:20px;font-weight:500;margin:0 0 4px}
+.sub{color:#5F5E5A;font-size:12px;margin:0 0 16px}
+.tabs{display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+.tab{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:20px;padding:5px 16px;
+font-size:12.5px;cursor:pointer;color:#444441}
+.tab.on{background:#2C2C2A;color:#fff;border-color:#2C2C2A}
+.nodetag{font-size:12px;color:#888780}
+.fbar{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;
+padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.fgroup{display:flex;align-items:center;gap:6px}
+.flabel{font-size:12px;color:#5F5E5A}
+.rbtn{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:6px;padding:3px 10px;
+font-size:12px;cursor:pointer;color:#444441}
+.rbtn.on{background:#2C2C2A;color:#fff;border-color:#2C2C2A}
+select,input[type=text]{border:1px solid rgba(0,0,0,.18);border-radius:6px;padding:4px 8px;
+font-size:12px;background:#fff;color:#2C2C2A;outline:none}
+input[type=text]{width:220px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:#F1EFE8;border-radius:20px;
+padding:2px 10px;font-size:12px;color:#444441}
+.chip b{cursor:pointer;color:#A32D2D;font-weight:400;padding:0 2px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
+.card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:12px 14px}
+.card .k{font-size:12px;color:#5F5E5A;margin-bottom:4px}
+.card .v{font-size:21px;font-weight:500}
+.card .s{font-size:11px;color:#888780}
+h2{font-size:15px;font-weight:500;margin:22px 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:14px 16px}
+.hbar{cursor:pointer;margin:4px 0}
+.hbar .t{display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px}
+.hbar .t .nm{max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .t .nm:hover{color:#A32D2D}
+.track{position:relative;background:#F1EFE8;border-radius:4px;height:14px}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;min-width:2px}
+.vwrap{margin:4px 0}
+.vrow{display:flex;align-items:flex-end}
+.yaxis{width:34px;height:120px;position:relative;flex:none}
+.yaxis span{position:absolute;right:6px;font-size:10px;color:#888780;transform:translateY(50%)}
+.vchart{display:flex;align-items:flex-end;gap:3px;height:120px;position:relative;flex:1;min-width:0}
+.gridline{position:absolute;left:0;right:0;border-top:1px dashed rgba(0,0,0,.08);pointer-events:none}
+.col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+height:100%;cursor:pointer;min-width:0}
+.barv{width:100%;max-width:26px;border-radius:3px 3px 0 0;min-height:2px;position:relative;z-index:1}
+.bnum{font-size:10px;color:#A32D2D;line-height:1.3}
+.vlabels{display:flex;gap:3px;margin-left:34px;margin-top:4px}
+.vlabels .col{height:auto;justify-content:flex-start}
+.hlab{font-size:10px;color:#888780;margin-top:4px;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;background:#F1EFE8;font-weight:500;font-size:12px;
+color:#444441;border-bottom:1px solid rgba(0,0,0,.08)}
+td{padding:8px 10px;border-bottom:1px solid rgba(0,0,0,.05);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.mono{font-family:Consolas,Monaco,monospace;font-size:12px}
+.sm{font-size:11px;color:#5F5E5A}
+.err{color:#A32D2D;font-size:12px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:inline-block;padding:1px 7px;border-radius:4px;background:#FCEBEB;color:#A32D2D;font-size:11px;cursor:pointer}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%}
+.ratebar{position:relative;background:#F1EFE8;border-radius:5px;height:15px;min-width:90px}
+.ratefill{height:100%;border-radius:5px;opacity:.85}
+.ratelab{position:absolute;left:7px;top:0;font-size:11px;color:#2C2C2A}
+.empty{color:#888780;font-size:13px;padding:14px;text-align:center}
+.morebtn{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:6px;padding:5px 14px;
+font-size:12px;cursor:pointer;margin:10px auto 0;display:block}
+.foot{color:#B0AFA8;font-size:11px;margin-top:26px;text-align:center}
+.legend{font-size:11px;color:#5F5E5A;margin-bottom:8px}
+</style></head><body>
+<div class="wrap">
+<h1>AI 模型网关 · 监控看板</h1>
+<p class="sub">自动化探测数据（上限 3 万条）　|　云端节点每 10 分钟、本地节点每 30 分钟自动更新　|　本页任何人可通过链接访问</p>
+
+<div class="tabs">
+  <button class="tab on" data-node="cloud">☁️ 云端探针 · 境外</button>
+  <button class="tab" data-node="local">🏠 本地探针 · 境内</button>
+  <span class="nodetag" id="boardTag"></span>
+</div>
+
+<div class="fbar">
+  <div class="fgroup"><span class="flabel">时间范围</span>
+    <button class="rbtn" data-act="range" data-v="24h">24小时</button>
+    <button class="rbtn" data-act="range" data-v="3d">3天</button>
+    <button class="rbtn" data-act="range" data-v="7d">7天</button>
+    <button class="rbtn" data-act="range" data-v="all">全部</button>
+  </div>
+  <div class="fgroup"><span class="flabel">模型</span><select id="fModel"><option value="">全部模型</option></select></div>
+  <div class="fgroup"><span class="flabel">错误类型</span><select id="fType"><option value="">全部类型</option></select></div>
+  <div class="fgroup"><span class="flabel">搜索</span><input type="text" id="fQ" placeholder="搜模型名 / 报错内容关键字"></div>
+  <div id="chips"></div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<h2>哪些模型报错多 <span class="sm">（点击条形可筛选该模型）</span></h2>
+<div class="panel" id="cModel"></div>
+
+<h2>报错时间趋势 <span class="sm">（点击柱子可筛选该时段）</span></h2>
+<div class="panel" id="cTimeline"><div class="legend" id="tlLegend"></div><div id="tlChart"></div></div>
+
+<div class="grid2">
+  <div>
+    <h2>哪个时间段报错多 <span class="sm">（按小时 0-23，点击筛选）</span></h2>
+    <div class="panel" id="cHour"></div>
+  </div>
+  <div>
+    <h2>报错内容类型分布 <span class="sm">（点击筛选该类型）</span></h2>
+    <div class="panel" id="cType"></div>
+  </div>
+</div>
+
+<h2>各模型健康度</h2>
+<div class="panel" id="tHealth"></div>
+
+<h2>报错明细 <span class="sm" id="dCount"></span></h2>
+<div class="panel" id="tDetail"></div>
+<button class="morebtn" id="btnMore" data-act="more">显示更多</button>
+
+<p class="foot">数据来自自动化探测（境外云端 + 境内本地双节点）　·　数据每 5 分钟自动刷新　·　筛选状态自动记忆</p>
+</div>
+
+<script>
+var RAW={rows:[]};
+var ROWS=RAW.rows;
+var DATA={cloud:[],local:[]};
+var NODE="cloud";
+var NODE_DIR={cloud:"data",local:"data-local"};
+var NODE_TAG={cloud:"探测点：GitHub Actions 机房（境外），每 10 分钟一轮",
+              local:"探测点：监控主机（境内），每 5 分钟探测、约 30 分钟汇总上报"};
+try{NODE=localStorage.getItem("gw_board_node")||"cloud";}catch(e){}
+
+function loadNode(node){
+  return fetch(NODE_DIR[node]+"/index.json?t="+Date.now()).then(function(r){
+    if(!r.ok)throw 0;return r.json();
+  }).then(function(idx){
+    var files=(idx.files||[]).slice(0,14);
+    if(!files.length)throw 0;
+    return Promise.all(files.map(function(f){
+      return fetch(NODE_DIR[node]+"/"+f+"?t="+Date.now()).then(function(r){return r.json();});
+    }));
+  }).then(function(days){
+    var rows=[];
+    days.forEach(function(d){(d.records||[]).forEach(function(r){rows.push(r);});});
+    rows.sort(function(a,b){return a[0]-b[0];});
+    if(rows.length>30000)rows=rows.slice(-30000);
+    return rows;
+  }).catch(function(){return [];});
+}
+function loadAllData(){
+  return Promise.all([loadNode("cloud"),loadNode("local")]).then(function(res){
+    DATA.cloud=res[0];DATA.local=res[1];setRows();
+  });
+}
+function setRows(){
+  ROWS=DATA[NODE].slice();
+  buildFilters();
+  syncControls();renderAll();
+  document.getElementById("boardTag").textContent=NODE_TAG[NODE];
+}
+var RANGES = {"24h":86400,"3d":259200,"7d":604800,"all":0};
+var TYPE_LABEL = {"billing":"计费/额度","timeout":"超时","http_500":"服务器错误(500)",
+"cpu_overloaded":"CPU过载","no_channel":"无可用渠道","service_unavailable":"服务不可用(503)",
+"rate_limited":"限速(429)","auth":"鉴权错误","network":"网络错误","unknown":"未知"};
+var TYPE_COLOR = {"billing":"#E24B4A","timeout":"#E8942A","http_500":"#D45BA2",
+"cpu_overloaded":"#8A63D2","no_channel":"#4A90D9","service_unavailable":"#3AA6A6",
+"rate_limited":"#C2A21B","auth":"#666666","network":"#888780","unknown":"#B0AFA8"};
+var PALETTE = ["#E24B4A","#E8942A","#D45BA2","#8A63D2","#4A90D9","#3AA6A6","#C2A21B","#888780"];
+var BUCKSEC = 3600;
+
+function pad(n){return n<10?"0"+n:""+n;}
+function fmtT(ep,sec){
+  var d=new Date(ep*1000);
+  var s=(d.getMonth()+1)+"-"+pad(d.getDate());
+  if(sec!==false) s+=" "+pad(d.getHours())+":"+pad(d.getMinutes());
+  return s;
+}
+function fmtClock(ep){
+  var d=new Date(ep*1000);return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+}
+function typeLabel(t){if(TYPE_LABEL[t])return TYPE_LABEL[t];
+  if(t&&t.indexOf("http_")===0)return "HTTP "+t.slice(5);return t||"未知";}
+function typeColor(t,i){if(TYPE_COLOR[t])return TYPE_COLOR[t];return PALETTE[i%PALETTE.length];}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function rateColor(r){return r>=99?"#1D9E75":(r>=90?"#BA7517":"#E24B4A");}
+function p95(a){if(!a.length)return 0;var s=a.slice().sort(function(x,y){return x-y;});
+  return s[Math.min(s.length-1,Math.floor(s.length*0.95))];}
+
+var S={range:"all",model:"",type:"",hour:-1,bucket:-1,q:"",limit:100};
+try{var sv=sessionStorage.getItem("gwdash_state");
+  if(sv){var o=JSON.parse(sv);for(var k in S){if(o[k]!==undefined)S[k]=o[k];}}}catch(e){}
+function save(){try{sessionStorage.setItem("gwdash_state",JSON.stringify(S));}catch(e){}}
+
+function bucketStart(t){
+  var d=new Date(t*1000);
+  if(BUCKSEC===3600)d.setMinutes(0,0,0);
+  else if(BUCKSEC===21600){d.setMinutes(0,0,0);d.setHours(Math.floor(d.getHours()/6)*6);}
+  else d.setHours(0,0,0,0);
+  return Math.floor(d.getTime()/1000);
+}
+
+function filt(drop){
+  var maxTs=0,i,r;for(i=0;i<ROWS.length;i++){if(ROWS[i][0]>maxTs)maxTs=ROWS[i][0];}
+  var cut=RANGES[S.range]?maxTs-RANGES[S.range]:0;
+  var out=[];
+  for(i=0;i<ROWS.length;i++){
+    r=ROWS[i];
+    if(r[0]<cut)continue;
+    if(drop!=="model"&&S.model&&r[2]!==S.model)continue;
+    if(drop!=="type"&&S.type&&((r[6]||"unknown")!==S.type))continue;
+    if(drop!=="hour"&&S.hour>=0&&new Date(r[0]*1000).getHours()!==S.hour)continue;
+    if(drop!=="bucket"&&S.bucket>=0&&bucketStart(r[0])!==S.bucket)continue;
+    if(S.q){var s=(r[2]+" "+r[6]+" "+r[7]).toLowerCase();
+      if(s.indexOf(S.q.toLowerCase())<0)continue;}
+    out.push(r);
+  }
+  return out;
+}
+
+function aggBy(rows,idx,mode){
+  var m={},i,k;
+  for(i=0;i<rows.length;i++){
+    var r=rows[i];
+    if(mode==="fail"){if(r[3]===1)continue;}
+    k=r[idx];if(!m[k])m[k]={n:0,f:0,lat:[]};
+    m[k].n++;
+    if(r[3]===0){m[k].f++;m[k].et=(m[k].et||{});var t=r[6]||"unknown";m[k].et[t]=(m[k].et[t]||0)+1;}
+    if(r[4]>0)m[k].lat.push(r[4]);
+  }
+  return m;
+}
+
+function hbarChart(m,act,drop,mode){
+  var keys=Object.keys(m).sort(function(a,b){return m[b].f-m[a].f||m[b].n-m[a].n;}).slice(0,15);
+  if(!keys.length)return '<div class="empty">没有失败记录</div>';
+  var max=1,i,h=[];
+  for(i=0;i<keys.length;i++)if(m[keys[i]].f>max)max=m[keys[i]].f;
+  for(i=0;i<keys.length;i++){var k=keys[i],d=m[k];
+    var on=(drop==="model"&&S.model===k)||(drop==="type"&&S.type===k);
+    var col=drop==="type"?typeColor(k,i):(drop==="hour"?"#E8942A":"#E24B4A");
+    var lab=mode==="type"?(d.f+" 次"):("失败 "+d.f+" 次 / 探测 "+d.n+" 次（失败率 "+(100*d.f/Math.max(d.n,1)).toFixed(1)+"%）");
+    h.push('<div class="hbar" data-act="'+act+'" data-v="'+esc(k)+'"'
+      +(drop==="type"?' style="background:'+(on?col:"transparent")+';border-radius:6px;padding:2px 4px;margin:2px -4px"':'')+'>'
+      +'<div class="t"><span class="nm" title="'+esc(k)+'">'+esc(drop==="type"?typeLabel(k):k)+'</span>'
+      +'<span class="sm">'+lab+'</span></div>'
+      +'<div class="track"><div class="fill" style="width:'+(100*d.f/max).toFixed(1)+'%;background:'+col+'"></div></div></div>');
+  }
+  return h.join("");
+}
+
+function yScale(max){
+  var steps=[1,2,5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000],i;
+  for(i=0;i<steps.length;i++){
+    var n=Math.ceil(max/steps[i]);
+    if(n<=5)return{step:steps[i],top:n*steps[i],n:n};
+  }
+  var s=steps[steps.length-1];
+  var n=Math.ceil(max/s);
+  return{step:s,top:n*s,n:n};
+}
+function axisFrame(sc,barsHtml,labelsHtml){
+  var y=[],g=[],i;
+  for(i=0;i<=sc.n;i++){
+    y.push('<span style="bottom:'+Math.max(-7,120*i/sc.n-7)+'px">'+(sc.step*i)+'</span>');
+    if(i>0)g.push('<div class="gridline" style="bottom:'+Math.round(120*i/sc.n)+'px"></div>');
+  }
+  return '<div class="vwrap"><div class="vrow"><div class="yaxis">'+y.join("")+'</div>'
+    +'<div class="vchart">'+g.join("")+barsHtml+'</div></div>'
+    +'<div class="vlabels">'+labelsHtml+'</div></div>';
+}
+
+function hourChart(rows){
+  var hf={},ht={},i;
+  for(i=0;i<rows.length;i++){var h=new Date(rows[i][0]*1000).getHours();
+    ht[h]=(ht[h]||0)+1;if(rows[i][3]===0)hf[h]=(hf[h]||0)+1;}
+  if(!Object.keys(ht).length)return '<div class="empty">暂无数据</div>';
+  var max=1;for(i=0;i<24;i++)if((hf[i]||0)>max)max=hf[i];
+  var sc=yScale(max);
+  var bars=[],labs=[];
+  for(i=0;i<24;i++){
+    var f=hf[i]||0,t=ht[i]||0;
+    var hh=f?Math.max(2,Math.round(120*f/sc.top)):2;
+    var on=S.hour===i;
+    bars.push('<div class="col" data-act="hour" data-v="'+i+'" title="'+pad(i)+':00 失败 '+f+' / 探测 '+t+'">'
+      +(f?'<div class="bnum">'+f+'</div>':'')
+      +'<div class="barv" style="height:'+hh+'px;background:'+(f?(on?"#A32D2D":"#E8942A"):"#E4E2DA")+'"></div></div>');
+    labs.push('<div class="col" data-act="hour" data-v="'+i+'"><div class="hlab">'+pad(i)+'</div></div>');
+  }
+  return '<div class="legend">每根柱子 = 该小时的失败次数（悬停看明细，点击筛选该小时）</div>'
+    +axisFrame(sc,bars.join(""),labs.join(""));
+}
+
+function tlTitle(ep){
+  var d=new Date(ep*1000);
+  var day=(d.getMonth()+1)+"-"+pad(d.getDate());
+  if(BUCKSEC===86400)return day+" 全天";
+  var d2=new Date((ep+BUCKSEC-60)*1000);
+  return day+" "+pad(d.getHours())+":00 ~ "+pad(d2.getHours())+":"+pad(d2.getMinutes());
+}
+function timelineChart(rows){
+  var span=0;
+  if(rows.length>1)span=rows[rows.length-1][0]-rows[0][0];
+  BUCKSEC=span<=48*3600?3600:(span<=10*86400?21600:86400);
+  var lab=BUCKSEC===3600?"按小时":(BUCKSEC===21600?"按 6 小时":"按天");
+  var lm=document.getElementById("tlLegend");
+  if(lm)lm.textContent="粒度："+lab+"，日期只在每天第一根柱子标注，钟点为该时段起点（悬停看明细，点击筛选该时段）";
+  var b={},i;
+  for(i=0;i<rows.length;i++){var bs=bucketStart(rows[i][0]);
+    if(!b[bs])b[bs]={n:0,f:0};b[bs].n++;if(rows[i][3]===0)b[bs].f++;}
+  var keys=Object.keys(b).sort();
+  if(!keys.length)return '<div class="empty">暂无数据</div>';
+  var max=1;for(i=0;i<keys.length;i++)if(b[keys[i]].f>max)max=b[keys[i]].f;
+  var sc=yScale(max);
+  var bars=[],labs=[],prevDay="";
+  for(i=0;i<keys.length;i++){var k=+keys[i],d=b[k];
+    var hh=d.f?Math.max(2,Math.round(120*d.f/sc.top)):2;
+    var on=S.bucket===k;
+    var dt=new Date(k*1000);
+    var dayStr=(dt.getMonth()+1)+"-"+pad(dt.getDate());
+    var dayLab=(dayStr!==prevDay)?dayStr:"";
+    prevDay=dayStr;
+    var hourLab=BUCKSEC===86400?"":(BUCKSEC===3600?pad(dt.getHours())+"时":pad(dt.getHours())+":00");
+    bars.push('<div class="col" data-act="bucket" data-v="'+k+'" title="'+tlTitle(k)+' | 失败 '+d.f+' / 探测 '+d.n+'（'+(100*d.f/Math.max(d.n,1)).toFixed(1)+'%）">'
+      +(d.f?'<div class="bnum">'+d.f+'</div>':'')
+      +'<div class="barv" style="height:'+hh+'px;background:'+(d.f?(on?"#A32D2D":"#E24B4A"):"#E4E2DA")+'"></div></div>');
+    labs.push('<div class="col" data-act="bucket" data-v="'+k+'"><div class="hlab">'+dayLab+'</div><div class="hlab">'+hourLab+'</div></div>');
+  }
+  return axisFrame(sc,bars.join(""),labs.join(""));
+}
+
+function renderAll(){
+  var rows=filt(null);
+  // 卡片
+  var total=rows.length,ok=0,lat=[];
+  var models={};
+  for(var i=0;i<rows.length;i++){if(rows[i][3]===1)ok++;else models["f"]=1;
+    if(rows[i][4]>0)lat.push(rows[i][4]);
+    if(!models[rows[i][2]])models[rows[i][2]]=1;}
+  var nModels=Object.keys(models).filter(function(k){return k!=="f";}).length;
+  var fails=total-ok;
+  var rate=total?100*ok/total:0;
+  document.getElementById("cards").innerHTML=
+    '<div class="card"><div class="k">探测样本</div><div class="v">'+total+'</div><div class="s">条</div></div>'
+   +'<div class="card"><div class="k">整体可用率</div><div class="v" style="color:'+rateColor(rate)+'">'+rate.toFixed(1)+'%</div></div>'
+   +'<div class="card"><div class="k">失败次数</div><div class="v" style="color:'+(fails?"#E24B4A":"#1D9E75")+'">'+fails+'</div></div>'
+   +'<div class="card"><div class="k">平均延迟</div><div class="v">'+(lat.length?Math.round(lat.reduce(function(a,b){return a+b;},0)/lat.length):0)+'<span class="sm">ms</span></div></div>'
+   +'<div class="card"><div class="k">涉及目标</div><div class="v">'+nModels+'</div></div>';
+
+  // 模型排行（去掉模型筛选自身，便于切换；统计全部探测次数算失败率）
+  document.getElementById("cModel").innerHTML=hbarChart(aggBy(filt("model"),2,"all"),"model","model","model");
+
+  // 错误类型分布
+  document.getElementById("cType").innerHTML=hbarChart(aggBy(filt("type"),6,"fail"),"etype","type","type");
+
+  // 时间图
+  document.getElementById("tlChart").innerHTML=timelineChart(rows);
+  document.getElementById("cHour").innerHTML=hourChart(rows);
+
+  // 健康表
+  var m=aggBy(filt("model"),2,false);
+  var keys=Object.keys(m).sort(function(a,b){return m[b].f-m[a].f||a.localeCompare(b);});
+  var h=[];
+  if(!keys.length)h.push('<div class="empty">暂无数据</div>');
+  else{
+    h.push('<table><thead><tr><th>目标</th><th>探测次数</th><th>可用率</th><th>平均</th><th>P95</th><th>失败构成</th></tr></thead><tbody>');
+    for(i=0;i<keys.length;i++){var k=keys[i],d=m[k];
+      var r=100*(d.n-d.f)/Math.max(d.n,1),avg=d.lat.length?Math.round(d.lat.reduce(function(a,b){return a+b;},0)/d.lat.length):0;
+      var comp="-";
+      if(d.et){comp=Object.keys(d.et).sort(function(a,b){return d.et[b]-d.et[a];}).slice(0,3)
+        .map(function(t){return esc(typeLabel(t))+" x"+d.et[t];}).join("，");}
+      h.push('<tr><td class="mono">'+esc(k)+'</td><td>'+d.n+'</td>'
+        +'<td><div class="ratebar"><div class="ratefill" style="width:'+r.toFixed(1)+'%;background:'+rateColor(r)+'"></div><span class="ratelab">'+r.toFixed(1)+'%</span></div></td>'
+        +'<td>'+avg+'ms</td><td>'+p95(d.lat)+'ms</td><td class="err">'+comp+'</td></tr>');
+    }
+    h.push('</tbody></table>');
+  }
+  document.getElementById("tHealth").innerHTML=h.join("");
+
+  // 明细表
+  var fr=rows.filter(function(r){return r[3]===0;}).slice().reverse();
+  document.getElementById("dCount").textContent="（共 "+fr.length+" 条失败，显示前 "+Math.min(fr.length,S.limit)+" 条）";
+  h=[];
+  if(!fr.length)h.push('<div class="empty">没有失败记录 🎉</div>');
+  else{
+    h.push('<table><thead><tr><th>时间</th><th>目标</th><th>错误类型</th><th>HTTP</th><th>耗时</th><th>报错内容</th></tr></thead><tbody>');
+    for(i=0;i<Math.min(fr.length,S.limit);i++){var r=fr[i];
+      h.push('<tr><td class="mono">'+fmtT(r[0])+'</td><td class="mono">'+esc(r[2])+'</td>'
+        +'<td><span class="tag" data-act="etype" data-v="'+esc(r[6]||"unknown")+'">'+esc(typeLabel(r[6]))+'</span></td>'
+        +'<td class="mono">'+esc(r[5]||"-")+'</td><td class="mono">'+r[4]+'ms</td>'
+        +'<td class="err" title="'+esc(r[7])+'">'+esc(r[7])+'</td></tr>');
+    }
+    h.push('</tbody></table>');
+  }
+  document.getElementById("tDetail").innerHTML=h.join("");
+  document.getElementById("btnMore").style.display=fr.length>S.limit?"block":"none";
+
+  renderChips();
+}
+
+function renderChips(){
+  var h=[];
+  if(S.model)h.push('<span class="chip">模型：'+esc(S.model)+'<b data-act="chip" data-v="model">✕</b></span>');
+  if(S.type)h.push('<span class="chip">类型：'+esc(typeLabel(S.type))+'<b data-act="chip" data-v="type">✕</b></span>');
+  if(S.hour>=0)h.push('<span class="chip">'+pad(S.hour)+':00 时段<b data-act="chip" data-v="hour">✕</b></span>');
+  if(S.bucket>=0)h.push('<span class="chip">时段 '+tlTitle(S.bucket)+'<b data-act="chip" data-v="bucket">✕</b></span>');
+  document.getElementById("chips").innerHTML=h.join("");
+}
+
+function syncControls(){
+  var bs=document.querySelectorAll(".rbtn[data-act=range]");
+  for(var i=0;i<bs.length;i++)bs[i].className="rbtn"+(bs[i].getAttribute("data-v")===S.range?" on":"");
+  document.getElementById("fModel").value=S.model;
+  document.getElementById("fType").value=S.type;
+  document.getElementById("fQ").value=S.q;
+}
+
+// 事件
+document.addEventListener("click",function(e){
+  var el=e.target.closest("[data-act]");if(!el)return;
+  var act=el.getAttribute("data-act"),v=el.getAttribute("data-v");
+  if(act==="range"){S.range=v;}
+  else if(act==="model"){S.model=(S.model===v?"":v);}
+  else if(act==="etype"||act==="type"){S.type=(S.type===v?"":v);}
+  else if(act==="hour"){var h=+v;S.hour=(S.hour===h?-1:h);}
+  else if(act==="bucket"){var b=+v;S.bucket=(S.bucket===b?-1:b);}
+  else if(act==="more"){S.limit+=200;}
+  else if(act==="chip"){S[v]=(v==="hour"||v==="bucket")?-1:"";}
+  save();syncControls();renderAll();
+});
+document.getElementById("fModel").addEventListener("change",function(){S.model=this.value;save();renderAll();});
+document.getElementById("fType").addEventListener("change",function(){S.type=this.value;save();renderAll();});
+document.getElementById("fQ").addEventListener("input",function(){S.q=this.value.trim();save();renderAll();});
+
+// 初始化下拉框（数据加载后调用）
+function buildFilters(){
+  var seen={},i,mo=[],ty={};
+  for(i=0;i<ROWS.length;i++){var t=ROWS[i][2];
+    if(t==="/v1/models")continue;
+    if(!seen[t]){seen[t]=1;mo.push(t);}
+    if(ROWS[i][3]===0){var et=ROWS[i][6]||"unknown";ty[et]=(ty[et]||0)+1;}}
+  mo.sort();
+  var so=document.getElementById("fModel");
+  so.innerHTML='<option value="">全部模型</option>';
+  for(i=0;i<mo.length;i++){var o=document.createElement("option");o.value=mo[i];o.textContent=mo[i];so.appendChild(o);}
+  var to=document.getElementById("fType"),tk=Object.keys(ty).sort(function(a,b){return ty[b]-ty[a];});
+  to.innerHTML='<option value="">全部类型</option>';
+  for(i=0;i<tk.length;i++){var o2=document.createElement("option");o2.value=tk[i];o2.textContent=typeLabel(tk[i])+"（"+ty[tk[i]]+"）";to.appendChild(o2);}
+}
+
+function syncTabs(){
+  var ts=document.querySelectorAll(".tab[data-node]");
+  for(var i=0;i<ts.length;i++)
+    ts[i].className="tab"+(ts[i].getAttribute("data-node")===NODE?" on":"");
+}
+document.addEventListener("click",function(e){
+  var t=e.target.closest("[data-node]");
+  if(!t)return;
+  NODE=t.getAttribute("data-node");
+  try{localStorage.setItem("gw_board_node",NODE);}catch(err){}
+  syncTabs();setRows();
+});
+
+syncTabs();
+loadAllData();
+setInterval(loadAllData,5*60*1000);
+</script>
+</body></html>
