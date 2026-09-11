@@ -16,6 +16,11 @@ h1{font-size:22px;font-weight:500;margin:0 0 6px;display:flex;align-items:center
 .badge.down{background:#FCEBEB;color:#A32D2D}
 .badge.na{background:#F1EFE8;color:#888780}
 .sub{color:#5F5E5A;font-size:12.5px;margin:0 0 20px}
+.tabs{display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+.tab{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:20px;padding:5px 16px;
+font-size:12.5px;cursor:pointer;color:#444441}
+.tab.on{background:#2C2C2A;color:#fff;border-color:#2C2C2A}
+.nodetag{font-size:12px;color:#888780}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:24px}
 .card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:12px 16px}
 .card .k{font-size:12px;color:#5F5E5A;margin-bottom:4px}
@@ -55,7 +60,13 @@ font-size:12px;cursor:pointer;color:#444441;margin-left:auto}
 <button class="btn" id="refresh">刷新</button></h1>
 <p class="sub">本页展示网关各对话模型的实时可用性，数据每 10 分钟自动更新。</p>
 
-<div class="note">📡 探测节点：云端探针位于<b>境外</b>（GitHub Actions 机房）；<b>境内本地探针即将接入</b>，届时将同时展示双节点视角。探测为轻量请求（1 token 应答），不影响正常服务。</div>
+<div class="note">📡 探测节点：云端探针位于<b>境外</b>（GitHub Actions 机房）；本地探针位于<b>境内</b>（监控主机）。探测为轻量请求（1 token 应答），不影响正常服务。</div>
+
+<div class="tabs">
+  <button class="tab on" data-node="cloud">☁️ 云端探针 · 境外</button>
+  <button class="tab" data-node="local">🏠 本地探针 · 境内</button>
+  <span class="nodetag" id="nodeTag"></span>
+</div>
 
 <div class="cards">
   <div class="card"><div class="k">整体可用率（24h）</div><div class="v" id="rate">—</div><div class="s" id="rateSub"></div></div>
@@ -92,30 +103,38 @@ function typeLabel(t){if(TYPE_LABEL[t])return TYPE_LABEL[t];
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
-var ROWS=[];
-function loadAll(){
-  fetch("data/index.json?t="+Date.now()).then(function(r){
+var DATA={cloud:[],local:[]};
+var NODE="cloud";
+var NODE_DIR={cloud:"data",local:"data-local"};
+var NODE_TAG={cloud:"探测点：GitHub Actions 机房（境外），每 10 分钟一轮",
+              local:"探测点：监控主机（境内），每 5 分钟探测、约 30 分钟汇总上报"};
+try{NODE=localStorage.getItem("gw_node")||"cloud";}catch(e){}
+
+function fetchNode(node){
+  return fetch(NODE_DIR[node]+"/index.json?t="+Date.now()).then(function(r){
     if(!r.ok)throw 0;return r.json();
   }).then(function(idx){
-    var files=(idx.files||[]).slice(0,7);
+    var files=(idx.files||[]).slice(0,2);   // 48 小时格子只需最近 2 天
     if(!files.length)throw 0;
     return Promise.all(files.map(function(f){
-      return fetch("data/"+f+"?t="+Date.now()).then(function(r){return r.json();});
+      return fetch(NODE_DIR[node]+"/"+f+"?t="+Date.now()).then(function(r){return r.json();});
     }));
   }).then(function(days){
-    ROWS=[];
-    days.forEach(function(d){(d.records||[]).forEach(function(r){ROWS.push(r);});});
-    ROWS.sort(function(a,b){return a[0]-b[0];});
-    render();
-  }).catch(function(){
-    document.getElementById("models").innerHTML=
-      '<div class="empty">首轮探测正在进行，约 10-20 分钟后刷新本页即可看到数据。</div>';
-    document.getElementById("overall").className="badge na";
-    document.getElementById("overall").textContent="暂无数据";
+    var rows=[];
+    days.forEach(function(d){(d.records||[]).forEach(function(r){rows.push(r);});});
+    rows.sort(function(a,b){return a[0]-b[0];});
+    return rows;
+  }).catch(function(){return [];});
+}
+function loadAll(){
+  return Promise.all([fetchNode("cloud"),fetchNode("local")]).then(function(res){
+    DATA.cloud=res[0];DATA.local=res[1];render();
   });
 }
 
 function render(){
+  var ROWS=DATA[NODE];
+  syncTabs();
   var now=Math.floor(Date.now()/1000), cut24=now-86400, cut48=now-48*3600;
   var i,r,total24=0,ok24=0,last=0;
   var models={};
@@ -155,7 +174,10 @@ function render(){
   for(i=0;i<names.length;i++){
     h.push(modelBlock(names[i],models[names[i]],bucket0,cut48));
   }
-  document.getElementById("models").innerHTML=h.join("")||'<div class="empty">暂无数据</div>';
+  document.getElementById("models").innerHTML=h.join("")
+    ||'<div class="empty">'+(NODE==="local"
+      ?"本地探针尚未上报：探测每 5 分钟在本机进行，约每 30 分钟汇总上报一次，稍后刷新可见。"
+      :"首轮探测正在进行，约 10-20 分钟后刷新本页即可看到数据。")+'</div>';
 
   // 技术详情
   var tb=document.getElementById("techBody");
@@ -208,7 +230,22 @@ function modelBlock(name,rows,bucket0,cut48){
     +'<span class="mstat">'+stat+'</span></div>'+cells+'</div>';
 }
 
+function syncTabs(){
+  var ts=document.querySelectorAll(".tab[data-node]");
+  for(var i=0;i<ts.length;i++)
+    ts[i].className="tab"+(ts[i].getAttribute("data-node")===NODE?" on":"");
+  document.getElementById("nodeTag").textContent=NODE_TAG[NODE];
+}
+document.addEventListener("click",function(e){
+  var t=e.target.closest("[data-node]");
+  if(!t)return;
+  NODE=t.getAttribute("data-node");
+  try{localStorage.setItem("gw_node",NODE);}catch(err){}
+  syncTabs();render();
+});
+
 document.getElementById("refresh").addEventListener("click",loadAll);
+syncTabs();
 loadAll();
 setInterval(loadAll,5*60*1000);
 </script>
