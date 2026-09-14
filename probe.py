@@ -13,6 +13,7 @@ BASE_URL = os.environ.get("GATEWAY_BASE_URL", "").rstrip("/")
 API_KEY = os.environ.get("GATEWAY_API_KEY", "")
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
 REPO_NAME = os.environ.get("REPO_NAME", "450425873qq/gateway-status")
+DINGTALK_WEBHOOK = os.environ.get("GATEWAY_DINGTALK_WEBHOOK", "")
 LOCAL_STALE_MIN = 25     # 本地心跳超过 25 分钟未更新 → 视为本地没跑，云端接管
 GRACE_END = 8 * 60 + 50  # 开窗宽限：北京 8:30-8:50 让本地先跑（首轮探测+心跳上报）
 SERIES = [s.strip().lower() for s in
@@ -123,6 +124,84 @@ def arbitrate(now, hb_ts):
     return False                          # 本地没跑，云端接管
 
 
+# ---- 云端接力告警（语义与本地一致：连续 3 次失败告警一次，连续 3 次成功恢复） ----
+ALERT_STATE = os.path.join(DATA, "alert_state_cloud.json")
+ALERT_FAIL = 3
+ALERT_OK = 3
+
+
+def _send_dingtalk(lines):
+    if not DINGTALK_WEBHOOK or not lines:
+        return
+    payload = json.dumps({"msgtype": "text",
+                          "text": {"content": "\n".join(lines)}}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            DINGTALK_WEBHOOK, data=payload,
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "gateway-status-probe"})
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print("钉钉发送失败:", str(e)[:100])
+
+
+def _load_alert_state():
+    try:
+        with io.open(ALERT_STATE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return {"streak": d.get("streak", {}),
+                "alerting": list(d.get("alerting", []))}
+    except Exception:
+        return {"streak": {}, "alerting": []}
+
+
+def _save_alert_state(st):
+    tmp = ALERT_STATE + ".tmp"
+    with io.open(tmp, "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False)
+    os.replace(tmp, ALERT_STATE)
+
+
+def handle_alerts(rows):
+    """云端接力告警状态机。状态存 data/alert_state_cloud.json，随数据一起 commit
+    持久化（每次 run 独立进程，靠仓库保存跨轮状态）。消息文本已脱敏。"""
+    st = _load_alert_state()
+    streak = st["streak"]
+    alerting = set(st["alerting"])
+    fired, recovered = [], []
+    for r in rows:
+        if r[1] != "model":
+            continue
+        key = r[2]
+        cur = streak.get(key, 0)
+        if r[3] == 1:
+            cur = cur + 1 if cur > 0 else 1
+            streak[key] = cur
+            if key in alerting and cur >= ALERT_OK:
+                alerting.discard(key)
+                recovered.append(r)
+        else:
+            cur = cur - 1 if cur < 0 else -1
+            streak[key] = cur
+            if cur <= -ALERT_FAIL and key not in alerting:
+                fired.append(r)
+                alerting.add(key)
+    st["alerting"] = sorted(alerting)
+    _save_alert_state(st)
+
+    if fired:
+        _send_dingtalk(["【网关告警·云端接力】"]
+                       + ["- %s 连续%d次失败（%s）%s"
+                          % (r[2], ALERT_FAIL, r[6] or "未知", (r[7] or "")[:80])
+                          for r in fired])
+        print("ALERT:", ", ".join(r[2] for r in fired))
+    if recovered:
+        _send_dingtalk(["【网关告警·云端接力·解除】"]
+                       + ["- %s 已恢复（连续%d次探测成功）" % (r[2], ALERT_OK)
+                          for r in recovered])
+        print("RECOVERED:", ", ".join(r[2] for r in recovered))
+
+
 def day_file(ts=None):
     d = datetime.fromtimestamp(ts, TZ) if ts else now_bj()
     return d.strftime("%Y-%m-%d") + ".json"
@@ -217,6 +296,7 @@ def main():
     if len(obj["records"]) > 60000:
         obj["records"] = obj["records"][-60000:]
     save_day(fname, obj)
+    handle_alerts(rows)
 
     # 清理过期文件 + 重建 index.json
     cutoff = (now_bj() - timedelta(days=RETAIN_DAYS)).strftime("%Y-%m-%d")
