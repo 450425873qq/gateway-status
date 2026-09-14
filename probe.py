@@ -182,7 +182,7 @@ def relay_loop():
 
 # ---- 云端接力告警（语义与本地一致：连续 3 次失败告警一次，连续 3 次成功恢复） ----
 ALERT_STATE = os.path.join(DATA, "alert_state_cloud.json")
-ALERT_FAIL = 3
+ALERT_FAIL = 2
 ALERT_OK = 3
 
 # 报错原因中文对照（钉钉报警消息用）
