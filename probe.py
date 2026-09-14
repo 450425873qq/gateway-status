@@ -84,10 +84,10 @@ def now_bj():
     return datetime.now(TZ)
 
 
-def in_window(dt=None):
-    """探测窗口双保险：北京时间工作日（周一至周五）约 8:25-18:35。
-    cron 已限定工作日北京时间 8:30-18:30（UTC 周一至周五 0:30-10:30），
-    此处容忍 Actions 高峰期约 5 分钟的调度延迟；PROBE_FORCE=1 绕过（手动触发用）。"""
+def in_local_window(dt=None):
+    """本地探针活跃窗口：北京工作日约 8:25-18:35（含 5 分钟调度容忍带）。
+    互补调度：本地跑时云端避让（不重复消耗 token），其余时段云端负责；
+    PROBE_FORCE=1 绕过（手动触发用）。"""
     dt = dt or now_bj()
     m = dt.hour * 60 + dt.minute
     return dt.weekday() < 5 and 8 * 60 + 25 <= m <= 18 * 60 + 35
@@ -163,8 +163,8 @@ def main():
     if not BASE_URL or not API_KEY:
         print("缺少 GATEWAY_BASE_URL / GATEWAY_API_KEY")
         return 1
-    if os.environ.get("PROBE_FORCE") != "1" and not in_window():
-        print("非探测时段（北京时间工作日 8:30-18:30），跳过本轮")
+    if os.environ.get("PROBE_FORCE") != "1" and in_local_window():
+        print("本地探针活跃时段（北京工作日 8:30-18:30），云端避让，跳过本轮")
         return 0
     os.makedirs(DATA, exist_ok=True)
 
