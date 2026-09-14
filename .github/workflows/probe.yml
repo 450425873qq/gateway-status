@@ -2,12 +2,11 @@ name: probe
 
 on:
   schedule:
-    # 互补调度：本地探针跑（北京工作日 8:30-18:30）时云端避让，其余时段云端每 10 分钟一轮
-    # UTC = 北京时间 - 8 小时
-    - cron: "0,10,20 0 * * 1-5"        # 北京工作日 8:00-8:20（本地窗口开始前）
-    - cron: "35,45,55 10 * * 1-5"      # 北京工作日 18:35-18:55（本地窗口结束后）
-    - cron: "*/10 11-23 * * 1-5"       # 北京 19:00-次日 7:55
-    - cron: "*/10 * * * 6,0"           # 北京周六 8:00 至周一 7:55（周末全天）
+    # 工作日（周一至五）北京时间 8:30-18:30 每 5 分钟触发。
+    # 每次运行先由 probe.py 仲裁：本地心跳新鲜 → 云端避让；
+    # 本地没跑（请假/关机/故障）→ 云端接管。夜间与周末两端都歇。
+    - cron: "30,35,40,45,50,55 0-9 * * 1-5"
+    - cron: "0,5,10,15,20,25,30 10 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -33,7 +32,9 @@ jobs:
           GATEWAY_BASE_URL: ${{ secrets.GATEWAY_BASE_URL }}
           GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
           SERIES: deepseek,kimi,glm
-          # 手动触发（workflow_dispatch）随时可跑；cron 触发仅限探测时段
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: 450425873qq/gateway-status
+          # 手动触发（workflow_dispatch）随时可跑；cron 触发经接力仲裁决定跑不跑
           PROBE_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python probe.py
 
