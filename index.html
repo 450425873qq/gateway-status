@@ -55,6 +55,41 @@ font-size:12px;cursor:pointer;color:#444441;margin-left:auto}
 </style>
 </head>
 <body>
+<div id="gate" style="position:fixed;left:0;top:0;right:0;bottom:0;background:#faf9f7;z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:36px 32px;width:300px;box-shadow:0 8px 32px rgba(0,0,0,.08);text-align:center;">
+    <div style="font-size:40px;line-height:1;">🔒</div>
+    <div style="font-size:18px;font-weight:500;margin:12px 0 4px;color:#2C2C2A;">AI 模型网关监控</div>
+    <div style="font-size:12px;color:#5F5E5A;margin-bottom:20px;">仅限授权人员访问，请输入访问密码</div>
+    <input id="gatePw" type="password" placeholder="访问密码" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid rgba(0,0,0,.18);background:#fff;color:#2C2C2A;font-size:14px;outline:none;">
+    <div id="gateErr" style="color:#A32D2D;font-size:12px;margin-top:8px;height:16px;"></div>
+    <button id="gateBtn" style="width:100%;padding:10px;border:none;border-radius:8px;background:#2C2C2A;color:#fff;font-size:14px;cursor:pointer;">进 入</button>
+  </div>
+</div>
+<script>
+(function(){
+var GATE_HASH='7c85fd8d09f3dc90964eac898e8b9eefe6a5e632cba616ef190bbe04002a6842';
+var GATE_KEY='gw_gate_v1';
+function hex(buf){var a=new Uint8Array(buf),s='',i;
+  for(i=0;i<a.length;i++){s+=(a[i]<16?'0':'')+a[i].toString(16);}return s;}
+function sha(s){
+  if(window.crypto&&window.crypto.subtle&&window.TextEncoder){
+    return crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)).then(hex);}
+  return Promise.reject(new Error('no-crypto'));}
+function g(id){return document.getElementById(id);}
+function openGate(){g('gate').style.display='none';}
+function tryLogin(){
+  var pw=g('gatePw').value;
+  if(!pw){g('gateErr').textContent='请输入密码';return;}
+  sha(pw).then(function(h){
+    if(h===GATE_HASH){openGate();try{localStorage.setItem(GATE_KEY,GATE_HASH);}catch(e){}}
+    else{g('gateErr').textContent='密码错误，请重试';g('gatePw').value='';g('gatePw').focus();}
+  }).catch(function(){g('gateErr').textContent='浏览器不支持加密组件，请用新版 Chrome/Edge 打开';});
+}
+try{if(localStorage.getItem(GATE_KEY)===GATE_HASH)openGate();}catch(e){}
+g('gateBtn').onclick=tryLogin;
+g('gatePw').onkeydown=function(e){if(e.key==='Enter')tryLogin();};
+})();
+</script>
 <div class="wrap">
 <h1>AI 模型网关 <span class="badge na" id="overall">加载中…</span>
 <button class="btn" id="refresh">刷新</button></h1>
