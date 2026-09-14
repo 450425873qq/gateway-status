@@ -1,26 +1,25 @@
 name: probe
 
 on:
-  schedule:
-    # 工作日（周一至五）北京时间 8:30-18:30 每 5 分钟触发。
-    # 每次运行先由 probe.py 仲裁：本地心跳新鲜 → 云端避让；
-    # 本地没跑（请假/关机/故障）→ 云端接管。夜间与周末两端都歇。
-    # r1: re-register schedule (2026-09-14)
-    - cron: "30,35,40,45,50,55 0-9 * * 1-5"
-    - cron: "0,5,10,15,20,25,30 10 * * 1-5"
   workflow_dispatch:
+    inputs:
+      relay:
+        description: '常驻待命模式（接力链自动触发选 true；手动单轮探测选 false）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: probe
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -36,11 +35,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: 450425873qq/gateway-status
           GATEWAY_DINGTALK_WEBHOOK: ${{ secrets.GATEWAY_DINGTALK_WEBHOOK }}
-          # 手动触发（workflow_dispatch）随时可跑；cron 触发经接力仲裁决定跑不跑
-          PROBE_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          RELAY: ${{ inputs.relay }}
         run: python probe.py
 
       - name: Commit data
+        if: always()
         run: |
           git config user.name "status-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
