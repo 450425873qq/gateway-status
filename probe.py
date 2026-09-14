@@ -129,6 +129,20 @@ ALERT_STATE = os.path.join(DATA, "alert_state_cloud.json")
 ALERT_FAIL = 3
 ALERT_OK = 3
 
+# 报错原因中文对照（钉钉报警消息用）
+ETYPE_CN = {"billing": "计费/额度", "timeout": "超时", "http_500": "服务器错误(500)",
+            "cpu_overloaded": "CPU过载", "no_channel": "无可用渠道",
+            "service_unavailable": "服务不可用(503)", "rate_limited": "限速(429)",
+            "auth": "鉴权错误", "network": "网络错误", "unknown": "未知"}
+
+
+def etype_cn(t):
+    if ETYPE_CN.get(t):
+        return ETYPE_CN[t]
+    if t and t.startswith("http_"):
+        return "HTTP " + t[5:]
+    return t or "未知"
+
 
 def _send_dingtalk(lines):
     if not DINGTALK_WEBHOOK or not lines:
@@ -189,16 +203,24 @@ def handle_alerts(rows):
     st["alerting"] = sorted(alerting)
     _save_alert_state(st)
 
+    ts = now_bj().strftime("%Y-%m-%d %H:%M:%S")
     if fired:
-        _send_dingtalk(["【网关告警·云端接力】"]
-                       + ["- %s 连续%d次失败（%s）%s"
-                          % (r[2], ALERT_FAIL, r[6] or "未知", (r[7] or "")[:80])
-                          for r in fired])
+        lines = ["【网关报警·云端接力】"]
+        for r in fired:
+            lines += ["报警时间：" + ts,
+                      "报错模型：" + r[2],
+                      "报错原因：" + etype_cn(r[6]) + " - " + (r[7] or "")[:100],
+                      ""]
+        _send_dingtalk(lines)
         print("ALERT:", ", ".join(r[2] for r in fired))
     if recovered:
-        _send_dingtalk(["【网关告警·云端接力·解除】"]
-                       + ["- %s 已恢复（连续%d次探测成功）" % (r[2], ALERT_OK)
-                          for r in recovered])
+        lines = ["【网关报警·云端接力·解除】"]
+        for r in recovered:
+            lines += ["恢复时间：" + ts,
+                      "报错模型：" + r[2],
+                      "状态：已恢复（连续%d次探测成功）" % ALERT_OK,
+                      ""]
+        _send_dingtalk(lines)
         print("RECOVERED:", ", ".join(r[2] for r in recovered))
 
 
