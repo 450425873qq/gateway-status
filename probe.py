@@ -3,7 +3,8 @@
 
 敏感信息全部来自环境变量（仓库 Secrets），任何输出都不含真实域名与密钥。
 """
-import io, os, sys, json, time, base64, socket, glob, urllib.request, urllib.error, urllib.parse
+import io, os, sys, json, time, base64, socket, glob, subprocess
+import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
@@ -16,6 +17,12 @@ REPO_NAME = os.environ.get("REPO_NAME", "450425873qq/gateway-status")
 DINGTALK_WEBHOOK = os.environ.get("GATEWAY_DINGTALK_WEBHOOK", "")
 LOCAL_STALE_MIN = 25     # 本地心跳超过 25 分钟未更新 → 视为本地没跑，云端接管
 GRACE_END = 8 * 60 + 50  # 开窗宽限：北京 8:30-8:50 让本地先跑（首轮探测+心跳上报）
+WIN_START = 8 * 60 + 25  # 探测窗口（含 5 分钟容忍带）：北京 8:25
+WIN_END = 18 * 60 + 35   # 窗口结束：北京 18:35
+RELAY = os.environ.get("RELAY", "").lower() == "true"
+RELAY_LIFETIME = 320 * 60    # relay run 自续阈值（GitHub job 上限 355 分钟，留余量）
+STANDBY_SLEEP = 60           # 待命循环步长（秒）
+PROBE_SLEEP = 300            # 接管探测间隔（秒）
 SERIES = [s.strip().lower() for s in
           os.environ.get("SERIES", "deepseek,kimi,glm").split(",") if s.strip()]
 RETAIN_DAYS = 30
@@ -108,20 +115,69 @@ def read_local_heartbeat():
         return None
 
 
-def arbitrate(now, hb_ts):
-    """接力仲裁：云端本轮是否应跳过。now = 北京时间，hb_ts = 本地心跳时间戳。
-    跳过 = True：周末 / 窗口外（cron 已限定，此为双保险）/ 开窗宽限期 / 本地心跳新鲜。
-    返回 False = 本地没在跑（请假、关机、故障），由云端接管探测。"""
+def seconds_until_window(now):
+    """距下一个工作日窗口开始（北京 8:25）的秒数"""
+    base = now.replace(hour=8, minute=25, second=0, microsecond=0)
+    for i in range(8):
+        c = base + timedelta(days=i)
+        if c.weekday() < 5 and c > now:
+            return (c - now).total_seconds()
+    return 3600.0
+
+
+def decide_relay(now, hb_ts):
+    """relay 哨兵决策。返回 (action, wait_seconds)：
+    sleep   = 窗口外（周末/夜间），睡到下个窗口开始
+    standby = 窗口内且本地心跳新鲜（或宽限期），睡 60 秒再看
+    probe   = 窗口内且本地心跳过期（请假/关机/故障），接管探测一轮"""
     m = now.hour * 60 + now.minute
     if now.weekday() >= 5:
-        return True                       # 周末：两端都歇
-    if not (8 * 60 + 25 <= m <= 18 * 60 + 35):
-        return True                       # 窗口外
+        return "sleep", seconds_until_window(now)
+    if not (WIN_START <= m <= WIN_END):
+        return "sleep", seconds_until_window(now)
     if m < GRACE_END:
-        return True                       # 开窗宽限：本地先跑
-    if hb_ts and time.time() - hb_ts < LOCAL_STALE_MIN * 60:
-        return True                       # 本地活着，云端避让
-    return False                          # 本地没跑，云端接管
+        return "standby", STANDBY_SLEEP
+    if hb_ts and (time.time() - hb_ts) < LOCAL_STALE_MIN * 60:
+        return "standby", STANDBY_SLEEP
+    return "probe", PROBE_SLEEP
+
+
+def self_dispatch():
+    """relay 链自续：run 退出前 dispatch 下一个 relay run（保持哨兵常驻）"""
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/actions/workflows/probe.yml/dispatches" % REPO_NAME,
+            data=json.dumps({"ref": "main", "inputs": {"relay": "true"}}).encode("utf-8"),
+            headers={"Authorization": "Bearer " + GH_TOKEN,
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "gateway-status-probe"},
+            method="POST")
+        urllib.request.urlopen(req, timeout=15)
+        print("relay 自续 dispatch 已发送")
+    except Exception as e:
+        print("relay 自续失败:", str(e)[:150])
+
+
+def relay_loop():
+    """云端常驻哨兵：待命看心跳、过期就接管，窗口外长睡，接近时长上限自续。"""
+    started = time.time()
+    print("relay 常驻哨兵启动（待命中，本地心跳过期即接管）")
+    while True:
+        now = now_bj()
+        if time.time() - started > RELAY_LIFETIME:
+            print("relay run 接近时长上限，自续下一个 relay run 后退出")
+            self_dispatch()
+            return 0
+        action, wait = decide_relay(now, read_local_heartbeat())
+        if action == "sleep":
+            print("窗口外，relay 长睡 %.0f 分钟" % (wait / 60))
+            time.sleep(min(wait, 1800))
+        elif action == "standby":
+            time.sleep(wait)
+        else:
+            print("本地心跳过期，云端接管探测一轮")
+            probe_round()
+            time.sleep(wait)
 
 
 # ---- 云端接力告警（语义与本地一致：连续 3 次失败告警一次，连续 3 次成功恢复） ----
@@ -290,15 +346,27 @@ def probe_model(model):
     return [int(time.time()), "model", model, 1 if ok else 0, ms, st, et, msg]
 
 
-def main():
-    if not BASE_URL or not API_KEY:
-        print("缺少 GATEWAY_BASE_URL / GATEWAY_API_KEY")
-        return 1
-    if os.environ.get("PROBE_FORCE") != "1" and arbitrate(now_bj(), read_local_heartbeat()):
-        print("接力仲裁：云端跳过本轮（窗口外 / 宽限期 / 本地在跑）")
-        return 0
-    os.makedirs(DATA, exist_ok=True)
+def commit_data():
+    """Actions 环境内提交并推送 data/（每轮即时入库，状态页实时可见）。
+    本地环境（无 git 推送权限）静默跳过。"""
+    try:
+        subprocess.run(["git", "config", "user.name", "status-bot"], check=True)
+        subprocess.run(["git", "config", "user.email",
+                        "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+        subprocess.run(["git", "add", "-A", "data/"], check=True)
+        d = subprocess.run(["git", "diff", "--cached", "--quiet"])
+        if d.returncode == 0:
+            return
+        subprocess.run(["git", "commit", "-m",
+                        "probe %s" % datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "push"], check=True, capture_output=True)
+    except Exception as e:
+        print("commit_data 跳过:", str(e)[:100])
 
+
+def probe_round():
+    """一轮完整探测：网关+模型 → 存数据 → 告警 → 清理 → 入库"""
     g_row, ids = probe_gateway()
     targets = discover_models(ids)
     print("网关: %s | 模型总数 %d | 探测目标 %d 个（series=%s）"
@@ -333,7 +401,18 @@ def main():
     files.sort(reverse=True)
     idx = {"files": files, "updated": int(time.time()), "retain_days": RETAIN_DAYS}
     save_day("index.json", idx)
-    print("data 文件数:", len(files))
+    commit_data()
+
+
+def main():
+    if not BASE_URL or not API_KEY:
+        print("缺少 GATEWAY_BASE_URL / GATEWAY_API_KEY")
+        return 1
+    os.makedirs(DATA, exist_ok=True)
+    if RELAY:
+        return relay_loop()
+    # 手动单轮（workflow_dispatch 不带 relay，或本地直接运行）
+    probe_round()
     return 0
 
 
