@@ -147,7 +147,7 @@ def self_dispatch():
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/%s/actions/workflows/probe.yml/dispatches" % REPO_NAME,
-            data=json.dumps({"ref": "main", "inputs": {"relay": "true"}}).encode("utf-8"),
+            data=json.dumps({"ref": "main", "inputs": {"relay": True}}).encode("utf-8"),
             headers={"Authorization": "Bearer " + GH_TOKEN,
                      "Accept": "application/vnd.github+json",
                      "User-Agent": "gateway-status-probe"},
