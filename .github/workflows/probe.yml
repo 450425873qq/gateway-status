@@ -34,6 +34,7 @@ jobs:
           SERIES: deepseek,kimi,glm
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: 450425873qq/gateway-status
+          GATEWAY_DINGTALK_WEBHOOK: ${{ secrets.GATEWAY_DINGTALK_WEBHOOK }}
           # 手动触发（workflow_dispatch）随时可跑；cron 触发经接力仲裁决定跑不跑
           PROBE_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python probe.py
