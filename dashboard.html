@@ -382,10 +382,28 @@ function renderAll(){
   var nModels=Object.keys(models).filter(function(k){return k!=="f";}).length;
   var fails=total-ok;
   var rate=total?100*ok/total:0;
+  // 最常见报错原因（剔除类型筛选自身维度，与"报错内容类型分布"面板统计口径一致）
+  var trows=filt("type"),etm={},etn=0,ii,tt;
+  for(ii=0;ii<trows.length;ii++){if(trows[ii][3]===0){tt=trows[ii][6]||"unknown";etm[tt]=(etm[tt]||0)+1;etn++;}}
+  var topT=null,topN=0,etk=Object.keys(etm);
+  for(ii=0;ii<etk.length;ii++){if(etm[etk[ii]]>topN){topN=etm[etk[ii]];topT=etk[ii];}}
+  var topCard;
+  if(!etn||!topT){
+    topCard='<div class="card"><div class="k">最常见报错原因</div>'
+      +'<div class="v" style="color:'+(total?"#1D9E75":"#888780")+'">'+(total?"无失败 🎉":"—")+'</div>'
+      +'<div class="s">'+(total?"当前筛选范围无失败记录":"暂无数据")+'</div></div>';
+  }else{
+    var pct=Math.round(100*topN/Math.max(etn,1));
+    topCard='<div class="card" data-act="etype" data-v="'+esc(topT)+'" style="cursor:pointer" title="点击筛选该类型">'
+      +'<div class="k">最常见报错原因</div>'
+      +'<div class="v" style="color:'+typeColor(topT,0)+'">'+esc(typeLabel(topT))+'</div>'
+      +'<div class="s">'+topN+' 次 · 占失败 '+pct+'% · 点击筛选</div></div>';
+  }
   document.getElementById("cards").innerHTML=
     '<div class="card"><div class="k">探测样本</div><div class="v">'+total+'</div><div class="s">条</div></div>'
    +'<div class="card"><div class="k">整体可用率</div><div class="v" style="color:'+rateColor(rate)+'">'+rate.toFixed(1)+'%</div></div>'
    +'<div class="card"><div class="k">失败次数</div><div class="v" style="color:'+(fails?"#E24B4A":"#1D9E75")+'">'+fails+'</div></div>'
+   +topCard
    +'<div class="card"><div class="k">平均延迟</div><div class="v">'+(lat.length?Math.round(lat.reduce(function(a,b){return a+b;},0)/lat.length):0)+'<span class="sm">ms</span></div></div>'
    +'<div class="card"><div class="k">涉及目标</div><div class="v">'+nModels+'</div></div>';
 
