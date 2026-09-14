@@ -84,6 +84,15 @@ def now_bj():
     return datetime.now(TZ)
 
 
+def in_window(dt=None):
+    """探测窗口双保险：北京时间工作日（周一至周五）约 8:25-18:35。
+    cron 已限定工作日北京时间 8:30-18:30（UTC 周一至周五 0:30-10:30），
+    此处容忍 Actions 高峰期约 5 分钟的调度延迟；PROBE_FORCE=1 绕过（手动触发用）。"""
+    dt = dt or now_bj()
+    m = dt.hour * 60 + dt.minute
+    return dt.weekday() < 5 and 8 * 60 + 25 <= m <= 18 * 60 + 35
+
+
 def day_file(ts=None):
     d = datetime.fromtimestamp(ts, TZ) if ts else now_bj()
     return d.strftime("%Y-%m-%d") + ".json"
@@ -154,6 +163,9 @@ def main():
     if not BASE_URL or not API_KEY:
         print("缺少 GATEWAY_BASE_URL / GATEWAY_API_KEY")
         return 1
+    if os.environ.get("PROBE_FORCE") != "1" and not in_window():
+        print("非探测时段（北京时间工作日 8:30-18:30），跳过本轮")
+        return 0
     os.makedirs(DATA, exist_ok=True)
 
     g_row, ids = probe_gateway()
