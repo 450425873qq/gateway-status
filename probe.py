@@ -3,7 +3,7 @@
 
 敏感信息全部来自环境变量（仓库 Secrets），任何输出都不含真实域名与密钥。
 """
-import io, os, sys, json, time, socket, glob, urllib.request, urllib.error, urllib.parse
+import io, os, sys, json, time, base64, socket, glob, urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 
@@ -11,6 +11,10 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 
 BASE_URL = os.environ.get("GATEWAY_BASE_URL", "").rstrip("/")
 API_KEY = os.environ.get("GATEWAY_API_KEY", "")
+GH_TOKEN = os.environ.get("GH_TOKEN", "")
+REPO_NAME = os.environ.get("REPO_NAME", "450425873qq/gateway-status")
+LOCAL_STALE_MIN = 25     # 本地心跳超过 25 分钟未更新 → 视为本地没跑，云端接管
+GRACE_END = 8 * 60 + 50  # 开窗宽限：北京 8:30-8:50 让本地先跑（首轮探测+心跳上报）
 SERIES = [s.strip().lower() for s in
           os.environ.get("SERIES", "deepseek,kimi,glm").split(",") if s.strip()]
 RETAIN_DAYS = 30
@@ -84,13 +88,39 @@ def now_bj():
     return datetime.now(TZ)
 
 
-def in_local_window(dt=None):
-    """本地探针活跃窗口：北京工作日约 8:25-18:35（含 5 分钟调度容忍带）。
-    互补调度：本地跑时云端避让（不重复消耗 token），其余时段云端负责；
-    PROBE_FORCE=1 绕过（手动触发用）。"""
-    dt = dt or now_bj()
-    m = dt.hour * 60 + dt.minute
-    return dt.weekday() < 5 and 8 * 60 + 25 <= m <= 18 * 60 + 35
+def read_local_heartbeat():
+    """读仓库根 heartbeat.json 的时间戳（本地探针活性证据）。失败返回 None。"""
+    if not GH_TOKEN:
+        return None
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/contents/heartbeat.json" % REPO_NAME,
+            headers={"Authorization": "Bearer " + GH_TOKEN,
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "gateway-status-probe"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        obj = json.loads(base64.b64decode(data.get("content", "")))
+        return obj.get("ts")
+    except Exception as e:
+        print("心跳读取失败（视为本地不活跃）:", str(e)[:100])
+        return None
+
+
+def arbitrate(now, hb_ts):
+    """接力仲裁：云端本轮是否应跳过。now = 北京时间，hb_ts = 本地心跳时间戳。
+    跳过 = True：周末 / 窗口外（cron 已限定，此为双保险）/ 开窗宽限期 / 本地心跳新鲜。
+    返回 False = 本地没在跑（请假、关机、故障），由云端接管探测。"""
+    m = now.hour * 60 + now.minute
+    if now.weekday() >= 5:
+        return True                       # 周末：两端都歇
+    if not (8 * 60 + 25 <= m <= 18 * 60 + 35):
+        return True                       # 窗口外
+    if m < GRACE_END:
+        return True                       # 开窗宽限：本地先跑
+    if hb_ts and time.time() - hb_ts < LOCAL_STALE_MIN * 60:
+        return True                       # 本地活着，云端避让
+    return False                          # 本地没跑，云端接管
 
 
 def day_file(ts=None):
@@ -163,8 +193,8 @@ def main():
     if not BASE_URL or not API_KEY:
         print("缺少 GATEWAY_BASE_URL / GATEWAY_API_KEY")
         return 1
-    if os.environ.get("PROBE_FORCE") != "1" and in_local_window():
-        print("本地探针活跃时段（北京工作日 8:30-18:30），云端避让，跳过本轮")
+    if os.environ.get("PROBE_FORCE") != "1" and arbitrate(now_bj(), read_local_heartbeat()):
+        print("接力仲裁：云端跳过本轮（窗口外 / 宽限期 / 本地在跑）")
         return 0
     os.makedirs(DATA, exist_ok=True)
 
